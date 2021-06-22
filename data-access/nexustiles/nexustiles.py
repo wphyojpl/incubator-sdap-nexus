@@ -346,16 +346,14 @@ class NexusTileService(object):
         return [box(*b) for b in bounds]
 
     def mask_tiles_to_bbox(self, min_lat, max_lat, min_lon, max_lon, tiles):
-
         for tile in tiles:
             tile.latitudes = ma.masked_outside(tile.latitudes, min_lat, max_lat)
             tile.longitudes = ma.masked_outside(tile.longitudes, min_lon, max_lon)
 
             # Or together the masks of the individual arrays to create the new mask
-            data_mask = ma.getmaskarray(tile.times)[:, np.newaxis, np.newaxis] \
-                        | ma.getmaskarray(tile.latitudes)[np.newaxis, :, np.newaxis] \
-                        | ma.getmaskarray(tile.longitudes)[np.newaxis, np.newaxis, :]
-
+            data_mask = ma.getmaskarray(tile.latitudes)[:, np.newaxis, np.newaxis] \
+                        | ma.getmaskarray(tile.longitudes)[np.newaxis, :, np.newaxis] \
+                        | ma.getmaskarray([tile.times[0] for _ in range(tile.data.shape[-1])])[np.newaxis, np.newaxis, :]
             tile.data = ma.masked_where(data_mask, tile.data)
 
         tiles[:] = [tile for tile in tiles if not tile.data.mask.all()]
@@ -403,10 +401,10 @@ class NexusTileService(object):
                 tile.times = ma.masked_outside(tile.times, start_time, end_time)
 
                 # Or together the masks of the individual arrays to create the new mask
-                data_mask = ma.getmaskarray(tile.times)[:, np.newaxis, np.newaxis] \
-                            | ma.getmaskarray(tile.latitudes)[np.newaxis, :, np.newaxis] \
-                            | ma.getmaskarray(tile.longitudes)[np.newaxis, np.newaxis, :]
-
+                data_mask = ma.getmaskarray(tile.latitudes)[:, np.newaxis, np.newaxis] \
+                            | ma.getmaskarray(tile.longitudes)[np.newaxis, :, np.newaxis] \
+                            | ma.getmaskarray([tile.times[0] for _ in range(tile.data.shape[-1])])[np.newaxis,
+                               np.newaxis, :]
                 tile.data = ma.masked_where(data_mask, tile.data)
 
             tiles[:] = [tile for tile in tiles if not tile.data.mask.all()]
