@@ -12,7 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import logging
+import sys
 from collections import namedtuple
 
 import numpy as np
@@ -20,6 +21,12 @@ import numpy as np
 NexusPoint = namedtuple('NexusPoint', 'latitude longitude depth time index data_val')
 BBox = namedtuple('BBox', 'min_lat max_lat min_lon max_lon')
 TileStats = namedtuple('TileStats', 'min max mean count')
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt="%Y-%m-%dT%H:%M:%S", stream=sys.stdout)
+logger = logging.getLogger("testing")
 
 
 class Tile(object):
@@ -78,23 +85,29 @@ class Tile(object):
 
         return summary
 
+    def __generate_point(self, index):
+        try:
+            # time = self.times[index[2]]
+            time = self.times[0]  # hardcoding the times as we know there is time array is a repeated value.
+            lat = self.latitudes[index[0]]
+            lon = self.longitudes[index[1]]
+            data_val = self.data[index]
+            point = NexusPoint(lat, lon, None, time, index, data_val)
+        except Exception as e:
+            logger.error(f'times: {self.times}. lat: {self.latitudes}. lon: {self.longitudes}. data: {self.data}. index: {index}')
+            raise e
+        return point
+
     def nexus_point_generator(self, include_nan=False):
         if include_nan:
             for index in np.ndindex(self.data.shape):
-                time = self.times[index[0]]
-                lat = self.latitudes[index[1]]
-                lon = self.longitudes[index[2]]
-                data_val = self.data[index]
-                point = NexusPoint(lat, lon, None, time, index, data_val)
+                logger.info(f'index: {index}')
+                point = self.__generate_point(index)
                 yield point
         else:
             for index in np.transpose(np.ma.nonzero(self.data)):
-                index = tuple(index)
-                time = self.times[index[0]]
-                lat = self.latitudes[index[1]]
-                lon = self.longitudes[index[2]]
-                data_val = self.data[index]
-                point = NexusPoint(lat, lon, None, time, index, data_val)
+                logger.info(f'index: {index}')
+                point = self.__generate_point(tuple(index))
                 yield point
 
     def get_indices(self, include_nan=False):
