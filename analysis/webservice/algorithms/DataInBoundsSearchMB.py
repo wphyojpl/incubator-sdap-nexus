@@ -138,9 +138,12 @@ class DataInBoundsSearchCalcMBHandlerImpl(NexusCalcHandler):
             tiles = self._get_tile_service().get_tiles_by_metadata(metadata_filter, ds, start_time, end_time)
 
         data = []
+        """
+        array_x = np.array([-2, -1, 0, 1, 2, 3])
+        multiply = np.broadcast_to(array_x[:, np.newaxis, np.newaxis], (array_x.size, 30, 30))
+        """
         for tile in tiles:
-            for nexus_point in tile.nexus_point_generator():
-
+            for nexus_point in tile.nexus_point_generator_multi_band(include_nan=False):
                 point = dict()
                 point['id'] = tile.tile_id
 

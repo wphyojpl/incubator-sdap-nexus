@@ -26,7 +26,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt="%Y-%m-%dT%H:%M:%S", stream=sys.stdout)
-logger = logging.getLogger("testing")
+logger = logging.getLogger(__name__)
 
 
 class Tile(object):
@@ -87,26 +87,72 @@ class Tile(object):
 
     def __generate_point(self, index):
         try:
-            # time = self.times[index[2]]
-            time = self.times[0]  # hardcoding the times as we know there is time array is a repeated value.
-            lat = self.latitudes[index[0]]
-            lon = self.longitudes[index[1]]
+            # original
+            time = self.times[index[0]]
+            lat = self.latitudes[index[1]]
+            lon = self.longitudes[index[2]]
             data_val = self.data[index]
+            logger.info(f'__generate_point: index: {index}')
+            logger.info(f'__generate_point: self.data shape: {self.data.shape}. time length: {len(self.times)}. lat len: {len(self.latitudes)}, lon len: {len(self.longitudes)}')
+            # time = self.times[index[2]]
+            # lat = self.latitudes[index[0]]
+            # lon = self.longitudes[index[1]]
+            # time = self.times[index[2]]
+            # data_val = self.data[index]
             point = NexusPoint(lat, lon, None, time, index, data_val)
         except Exception as e:
             logger.error(f'times: {self.times}. lat: {self.latitudes}. lon: {self.longitudes}. data: {self.data}. index: {index}')
             raise e
         return point
 
+    def __generate_point_multi_band(self, index, transposed_data):
+        try:
+            # original
+            time = self.times[0]
+            lat = self.latitudes[index[0]]
+            lon = self.longitudes[index[1]]
+            data_val = transposed_data[index[0]][index[1]]
+            logger.info(f'__generate_point: index: {index}')
+            logger.info(f'__generate_point: transposed_data shape: {transposed_data.shape}. time length: {len(self.times)}. lat len: {len(self.latitudes)}, lon len: {len(self.longitudes)}')
+            # time = self.times[index[2]]
+            # lat = self.latitudes[index[0]]
+            # lon = self.longitudes[index[1]]
+            # time = self.times[index[2]]
+            # data_val = self.data[index]
+            point = NexusPoint(lat, lon, None, time, index, data_val)
+        except Exception as e:
+            logger.error(f'times: {self.times}. lat: {self.latitudes}. lon: {self.longitudes}. data: {transposed_data}. index: {index}')
+            raise e
+        return point
+
+    def nexus_point_generator_multi_band(self, include_nan=False):
+        transposed_data = np.transpose(self.data, (1, 2, 0))
+        logger.info(f'sample data: {transposed_data[0][0][0]}. shape: {type(transposed_data[0][0][0])}')
+        if include_nan:
+            for ij in np.ndindex(transposed_data.shape[:2]):
+                logger.info(f'nexus_point_generator_multi_band#include_nan#index: {ij}')
+                yield self.__generate_point_multi_band(ij, transposed_data)
+        else:
+            for index in np.transpose(np.ma.nonzero(np.count_nonzero(transposed_data, axis=2))):
+                logger.info(f'nexus_point_generator_multi_band#not_include_nan#index: {index}')
+                yield self.__generate_point_multi_band(index, transposed_data)
+        return
+
+    def remove_nan_data(self):
+        tile_data = self.data
+        logger.info(f'tile_data: {tile_data[0][0][0]}. type: {type(tile_data[0][0][0])}')
+        transposed_data = np.transpose(self.data, (1, 2, 0))
+        return transposed_data
+
     def nexus_point_generator(self, include_nan=False):
         if include_nan:
             for index in np.ndindex(self.data.shape):
-                logger.info(f'index: {index}')
+                logger.debug(f'index: {index}')
                 point = self.__generate_point(index)
                 yield point
         else:
             for index in np.transpose(np.ma.nonzero(self.data)):
-                logger.info(f'index: {index}')
+                logger.debug(f'index: {index}')
                 point = self.__generate_point(tuple(index))
                 yield point
 
