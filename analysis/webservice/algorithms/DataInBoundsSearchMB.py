@@ -167,6 +167,8 @@ class DataInBoundsSearchCalcMBHandlerImpl(NexusCalcHandler):
                         pass
                 else:
                     point['variable'] = nexus_point.data_val
+                # TODO hardcoding EVI calculation for demo
+                point['evi'] = tile.calculate_evi(nexus_point)
                 # logger.info(f'point: {point}')
                 data.append({
                     'latitude': nexus_point.latitude,

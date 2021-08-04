@@ -125,6 +125,19 @@ class Tile(object):
             raise e
         return point
 
+    def calculate_evi(self, nexus_point):
+        x_weights = [0, 0, -2.5, 2.5, 0, 0]
+        y_weights = [-7.5, 0, 2.4, 1, 0, 0]
+        if len(nexus_point.data_val) != len(x_weights):
+            logger.warning(f'nexus_point array size is different from x_weights. not calculating')
+            return None
+        x = sum(nexus_point.data_val * x_weights)
+        y = sum(nexus_point.data_val * y_weights)
+        if y == 0:
+            logger.warning(f'y is None after multiplying. not calculating')
+            return None
+        return x / y
+
     def nexus_point_generator_multi_band(self, include_nan=False):
         transposed_data = np.transpose(self.data, (1, 2, 0))
         logger.info(f'sample data: {transposed_data[0][0][0]}. shape: {type(transposed_data[0][0][0])}')
