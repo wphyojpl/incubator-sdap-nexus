@@ -139,7 +139,10 @@ class Tile(object):
         return x / y
 
     def nexus_point_generator_multi_band(self, include_nan=False):
-        transposed_data = np.transpose(self.data, (1, 2, 0))
+        logger.info(f'existing data dimension: {type(self.data)}')
+        # TODO performed a quickfix. since the new grid multivariable processing does not squeeze. it becomes 4D instead of 3D. It is breaking this method. So, it is squeezed. And it no longer needs to transpose as the variables are the last dimension
+        # transposed_data = np.transpose(self.data, (1, 2, 0))
+        transposed_data = np.squeeze(self.data)
         logger.info(f'sample data: {transposed_data[0][0][0]}. shape: {type(transposed_data[0][0][0])}')
         if include_nan:
             for ij in np.ndindex(transposed_data.shape[:2]):
