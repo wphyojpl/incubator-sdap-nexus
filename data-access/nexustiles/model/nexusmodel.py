@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
+import math
 import sys
 from collections import namedtuple
 
@@ -126,13 +127,33 @@ class Tile(object):
         return point
 
     def calculate_evi(self, nexus_point):
+        """
+        Hardcoded method for HLS data.
+        Assuming incoming point has 6 data points.
+        Assuming they are in this order:
+
+        band 2; blue
+        band 3; green
+        band 4; red
+        band 5; nir
+        band 6; swirOne
+        band 7; swirTwo
+
+        calculating this formula:   if (whatIndex == 'evi2') {index <- 2.5*(nir - red) / (nir + 2.4*red + 1)}
+
+        """
         x_weights = [0, 0, -2.5, 2.5, 0, 0]
-        y_weights = [-7.5, 0, 2.4, 1, 0, 0]
+        y_weights = [0, 0, 2.4, 0, 0, 0]
+        x_constant = 0
+        y_constant = 1
         if len(nexus_point.data_val) != len(x_weights):
             logger.warning(f'nexus_point array size is different from x_weights. not calculating')
             return None
-        x = sum(nexus_point.data_val * x_weights)
-        y = sum(nexus_point.data_val * y_weights)
+        x = sum(nexus_point.data_val * x_weights) + x_constant
+        y = sum(nexus_point.data_val * y_weights) + y_constant
+        if math.isnan(x) or math.isnan(y):
+            logger.error(f'x or y is resulted in NaN. not calculating. {x} / {y}')
+            return None
         if y == 0:
             logger.warning(f'y is None after multiplying. not calculating')
             return None

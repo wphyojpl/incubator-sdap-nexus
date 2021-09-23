@@ -404,7 +404,7 @@ class TestNexusPointGeneratorMultiBand(unittest.TestCase):
 
         points = [k for k in nexus_tile.nexus_point_generator_multi_band(include_nan=False)]
         self.assertEqual(550**2, len(points), 'length of points array is not the same as input file which has [550,550,6]')
-        self.assertEqual(5, len(points[0].data_val), 'wrong length of variable array.')
+        self.assertEqual(6, len(points[0].data_val), 'wrong length of variable array.')
         evis = [nexus_tile.calculate_evi(k) for k in points]
         self.assertEqual(550**2, len(evis), 'length of EVI array is not the same as input file which has [550,550,6]')
         print(len(evis))
