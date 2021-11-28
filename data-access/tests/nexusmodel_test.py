@@ -12,11 +12,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
+import os
 import unittest
 import numpy as np
 from nexustiles.model.nexusmodel import get_approximate_value_for_lat_lon, Tile, BBox
+from nexusproto.DataTile_pb2 import TileData
+from nexusproto.serialization import from_shaped_array, to_shaped_array
 
 
 class TestApproximateValueMethod(unittest.TestCase):
@@ -379,3 +380,32 @@ class TestMergeTilesMethod(unittest.TestCase):
         from nexustiles.model.nexusmodel import merge_tiles
 
         self.assertRaises(Exception, lambda _: merge_tiles([tile1, tile2]))
+
+
+class TestNexusPointGeneratorMultiBand(unittest.TestCase):
+    def test_nexus_point_generator_multi_band(self):
+        """
+        Snippet on how to keep the tile in a text file:
+
+        from nexusproto.DataTile_pb2 import TileData
+        serialized_tile_data = TileData.SerializeToString(generated_tile.tile)
+        with open('serialized_tile_data', 'wb') as ff:
+            ff.write(serialized_tile_data)
+        redo = TileData.FromString(serialized_tile_data)
+        # print(redo)
+        """
+        with open(os.path.join(os.getcwd(), 'serialized_tile_data'), 'rb') as ff:
+            read_from_file_tile = TileData.FromString(ff.read())
+        nexus_tile = Tile()
+        nexus_tile.times = [0]
+        nexus_tile.latitudes = from_shaped_array(read_from_file_tile.grid_multi_variable_tile.latitude)
+        nexus_tile.longitudes = from_shaped_array(read_from_file_tile.grid_multi_variable_tile.longitude)
+        nexus_tile.data = from_shaped_array(read_from_file_tile.grid_multi_variable_tile.variable_data)
+
+        points = [k for k in nexus_tile.nexus_point_generator_multi_band(include_nan=False)]
+        self.assertEqual(550**2, len(points), 'length of points array is not the same as input file which has [550,550,6]')
+        self.assertEqual(6, len(points[0].data_val), 'wrong length of variable array.')
+        evis = [nexus_tile.calculate_evi(k) for k in points]
+        self.assertEqual(550**2, len(evis), 'length of EVI array is not the same as input file which has [550,550,6]')
+        print(len(evis))
+        return

@@ -18,6 +18,7 @@
 import json
 import logging
 import threading
+from shapely.geometry import Polygon
 from datetime import datetime
 from itertools import chain
 from math import cos, radians
@@ -434,6 +435,10 @@ class DomsPoint(object):
         except KeyError:
             point.data_id = "%s:%s:%s" % (point.time, point.longitude, point.latitude)
 
+        if 'var_name' in edge_point and 'var_value' in edge_point:
+            point.satellite_var_name = edge_point['var_name']
+            point.satellite_var_value = edge_point['var_value']
+
         return point
 
 
@@ -463,11 +468,25 @@ def spark_matchup_driver(tile_ids, bounding_wkt, primary_ds_name, matchup_ds_nam
 
     # Map Partitions ( list(tile_id) )
     rdd_filtered = rdd.mapPartitions(
-        partial(match_satellite_to_insitu, primary_b=primary_b, matchup_b=matchup_b, parameter_b=parameter_b, tt_b=tt_b,
-                rt_b=rt_b, platforms_b=platforms_b, bounding_wkt_b=bounding_wkt_b, depth_min_b=depth_min_b,
-                depth_max_b=depth_max_b, tile_service_factory=tile_service_factory), preservesPartitioning=True) \
-        .filter(lambda p_m_tuple: abs(
-        iso_time_to_epoch(p_m_tuple[0].time) - iso_time_to_epoch(p_m_tuple[1].time)) <= time_tolerance)
+        partial(
+            match_satellite_to_insitu,
+            primary_b=primary_b,
+            matchup_b=matchup_b,
+            parameter_b=parameter_b,
+            tt_b=tt_b,
+            rt_b=rt_b,
+            platforms_b=platforms_b,
+            bounding_wkt_b=bounding_wkt_b,
+            depth_min_b=depth_min_b,
+            depth_max_b=depth_max_b,
+            tile_service_factory=tile_service_factory
+        ),
+        preservesPartitioning=True
+    ).filter(
+        lambda p_m_tuple: abs(
+            iso_time_to_epoch(p_m_tuple[0].time) - iso_time_to_epoch(p_m_tuple[1].time)
+        ) <= time_tolerance
+    )
 
     if match_once:
         # Only the 'nearest' point for each primary should be returned. Add an extra map/reduce which calculates
@@ -523,6 +542,25 @@ def add_meters_to_lon_lat(lon, lat, meters):
     return longitude, latitude
 
 
+def tile_to_edge_points(tile):
+    indices = tile.get_indices()
+    edge_points = []
+
+    for idx in indices:
+        edge_point = {
+            'point': f'Point({tile.longitudes[idx[2]]} {tile.latitudes[idx[1]]})',
+            'time': datetime.utcfromtimestamp(tile.times[idx[0]]).strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'source': tile.dataset,
+            'platform': None,
+            'device': None,
+            'fileurl': tile.granule,
+            'var_name': tile.var_name,
+            'var_value': tile.data[tuple(idx)]
+        }
+        edge_points.append(edge_point)
+    return edge_points
+
+
 def match_satellite_to_insitu(tile_ids, primary_b, matchup_b, parameter_b, tt_b, rt_b, platforms_b,
                               bounding_wkt_b, depth_min_b, depth_max_b, tile_service_factory):
     the_time = datetime.now()
@@ -552,7 +590,6 @@ def match_satellite_to_insitu(tile_ids, primary_b, matchup_b, parameter_b, tt_b,
     # Find the centroid of the matchup bounding box and initialize the projections
     matchup_center = box(matchup_min_lon, matchup_min_lat, matchup_max_lon, matchup_max_lat).centroid.coords[0]
     aeqd_proj = pyproj.Proj(proj='aeqd', lon_0=matchup_center[0], lat_0=matchup_center[1])
-    lonlat_proj = pyproj.Proj(proj='lonlat')
 
     # Increase temporal extents by the time tolerance
     matchup_min_time = tiles_min_time - tt_b.value
@@ -561,38 +598,77 @@ def match_satellite_to_insitu(tile_ids, primary_b, matchup_b, parameter_b, tt_b,
         str(datetime.now() - the_time), tile_ids[0], tile_ids[-1]))
 
     # Query edge for all points within the spatial-temporal extents of this partition
-    the_time = datetime.now()
-    edge_session = requests.Session()
-    edge_results = []
-    with edge_session:
-        for insitudata_name in matchup_b.value.split(','):
-            bbox = ','.join(
-                [str(matchup_min_lon), str(matchup_min_lat), str(matchup_max_lon), str(matchup_max_lat)])
-            edge_response = query_edge(insitudata_name, parameter_b.value, matchup_min_time, matchup_max_time, bbox,
-                                       platforms_b.value, depth_min_b.value, depth_max_b.value, session=edge_session)
-            if edge_response['totalResults'] == 0:
-                continue
-            r = edge_response['results']
-            for p in r:
-                p['source'] = insitudata_name
-            edge_results.extend(r)
-    print("%s Time to call edge for partition %s to %s" % (str(datetime.now() - the_time), tile_ids[0], tile_ids[-1]))
-    if len(edge_results) == 0:
-        return []
+    is_insitu_dataset = edge_endpoints.getEndpointByName(matchup_b.value)
 
-    # Convert edge points to utm
-    the_time = datetime.now()
-    matchup_points = np.ndarray((len(edge_results), 2), dtype=np.float32)
-    for n, edge_point in enumerate(edge_results):
-        try:
-            x, y = wkt.loads(edge_point['point']).coords[0]
-        except WKTReadingError:
+    if is_insitu_dataset:
+        the_time = datetime.now()
+        edge_session = requests.Session()
+        edge_results = []
+        with edge_session:
+            for insitudata_name in matchup_b.value.split(','):
+                bbox = ','.join(
+                    [str(matchup_min_lon), str(matchup_min_lat), str(matchup_max_lon), str(matchup_max_lat)])
+                edge_response = query_edge(insitudata_name, parameter_b.value, matchup_min_time, matchup_max_time, bbox,
+                                           platforms_b.value, depth_min_b.value, depth_max_b.value, session=edge_session)
+                if edge_response['totalResults'] == 0:
+                    continue
+                r = edge_response['results']
+                for p in r:
+                    p['source'] = insitudata_name
+                edge_results.extend(r)
+        print("%s Time to call edge for partition %s to %s" % (str(datetime.now() - the_time), tile_ids[0], tile_ids[-1]))
+        if len(edge_results) == 0:
+            return []
+
+        # Convert edge points to utm
+        the_time = datetime.now()
+        matchup_points = np.ndarray((len(edge_results), 2), dtype=np.float32)
+        for n, edge_point in enumerate(edge_results):
             try:
-                x, y = Point(*[float(c) for c in edge_point['point'].split(' ')]).coords[0]
-            except ValueError:
-                y, x = Point(*[float(c) for c in edge_point['point'].split(',')]).coords[0]
+                x, y = wkt.loads(edge_point['point']).coords[0]
+            except WKTReadingError:
+                try:
+                    x, y = Point(*[float(c) for c in edge_point['point'].split(' ')]).coords[0]
+                except ValueError:
+                    y, x = Point(*[float(c) for c in edge_point['point'].split(',')]).coords[0]
 
-        matchup_points[n][0], matchup_points[n][1] = pyproj.transform(p1=lonlat_proj, p2=aeqd_proj, x=x, y=y)
+            matchup_points[n][0], matchup_points[n][1] = aeqd_proj(x, y)
+    else:
+        # Query nexus (cassandra? solr?) to find matching points.
+        bbox = ','.join(
+            [str(matchup_min_lon), str(matchup_min_lat), str(matchup_max_lon),
+             str(matchup_max_lat)])
+        west, south, east, north = [float(b) for b in bbox.split(",")]
+        polygon = Polygon(
+            [(west, south), (east, south), (east, north), (west, north), (west, south)])
+
+        matchup_tiles = tile_service.find_tiles_in_polygon(
+            bounding_polygon=polygon,
+            ds=matchup_b.value,
+            start_time=matchup_min_time,
+            end_time=matchup_max_time,
+            fetch_data=True,
+            sort=['tile_min_time_dt asc', 'tile_min_lon asc', 'tile_min_lat asc'],
+            rows=5000
+        )
+
+        # Convert Tile IDS to tiles and convert to UTM lat/lon projection.
+        matchup_points = []
+        for tile in matchup_tiles:
+            valid_indices = tile.get_indices()
+            primary_points = np.array([aeqd_proj(
+                tile.longitudes[aslice[2]],
+                tile.latitudes[aslice[1]]
+            ) for aslice in valid_indices])
+            matchup_points.extend(primary_points)
+
+        # Convert tiles to 'edge points' which match the format of in-situ edge points.
+        edge_results = []
+        for matchup_tile in matchup_tiles:
+            edge_results.extend(tile_to_edge_points(matchup_tile))
+
+        matchup_points = np.array(matchup_points)
+
     print("%s Time to convert match points for partition %s to %s" % (
         str(datetime.now() - the_time), tile_ids[0], tile_ids[-1]))
 
@@ -603,14 +679,14 @@ def match_satellite_to_insitu(tile_ids, primary_b, matchup_b, parameter_b, tt_b,
 
     # The actual matching happens in the generator. This is so that we only load 1 tile into memory at a time
     match_generators = [match_tile_to_point_generator(tile_service, tile_id, m_tree, edge_results, bounding_wkt_b.value,
-                                                      parameter_b.value, rt_b.value, lonlat_proj, aeqd_proj) for tile_id
+                                                      parameter_b.value, rt_b.value, aeqd_proj) for tile_id
                         in tile_ids]
 
     return chain(*match_generators)
 
 
 def match_tile_to_point_generator(tile_service, tile_id, m_tree, edge_results, search_domain_bounding_wkt,
-                                  search_parameter, radius_tolerance, lonlat_proj, aeqd_proj):
+                                  search_parameter, radius_tolerance, aeqd_proj):
     from nexustiles.model.nexusmodel import NexusPoint
     from webservice.algorithms_spark.Matchup import DomsPoint  # Must import DomsPoint or Spark complains
 
@@ -630,7 +706,7 @@ def match_tile_to_point_generator(tile_service, tile_id, m_tree, edge_results, s
     # Get list of indices of valid values
     valid_indices = tile.get_indices()
     primary_points = np.array(
-        [pyproj.transform(p1=lonlat_proj, p2=aeqd_proj, x=tile.longitudes[aslice[2]], y=tile.latitudes[aslice[1]]) for
+        [aeqd_proj(tile.longitudes[aslice[2]], tile.latitudes[aslice[1]]) for
          aslice in valid_indices])
 
     print("%s Time to convert primary points for tile %s" % (str(datetime.now() - the_time), tile_id))

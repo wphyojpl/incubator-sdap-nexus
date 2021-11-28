@@ -123,8 +123,25 @@ class NexusTileData(Model):
                 meta_data[name] = reshaped_meta_array
 
             return latitude_data, longitude_data, time_data, tile_data, meta_data
+        elif self._get_nexus_tile().HasField('grid_multi_variable_tile'):
+            grid_multi_variable_tile = self._get_nexus_tile().grid_multi_variable_tile
+
+            grid_tile_data = np.ma.masked_invalid(from_shaped_array(grid_multi_variable_tile.variable_data))
+            latitude_data = np.ma.masked_invalid(from_shaped_array(grid_multi_variable_tile.latitude))
+            longitude_data = np.ma.masked_invalid(from_shaped_array(grid_multi_variable_tile.longitude))
+
+            # Extract the meta data
+            meta_data = {}
+            for meta_data_obj in grid_multi_variable_tile.meta_data:
+                name = meta_data_obj.name
+                meta_array = np.ma.masked_invalid(from_shaped_array(meta_data_obj.meta_data))
+                if len(meta_array.shape) == 2:
+                    meta_array = meta_array[np.newaxis, :]
+                meta_data[name] = meta_array
+
+            return latitude_data, longitude_data, np.array([grid_multi_variable_tile.time]), grid_tile_data, meta_data
         else:
-            raise NotImplementedError("Only supports grid_tile, swath_tile, and time_series_tile")
+            raise NotImplementedError("Only supports grid_tile, grid_multi_variable_tile, swath_tile, and time_series_tile")
 
     @staticmethod
     def _to_standard_index(data_array, desired_shape):

@@ -346,21 +346,34 @@ class NexusTileService(object):
         return [box(*b) for b in bounds]
 
     def mask_tiles_to_bbox(self, min_lat, max_lat, min_lon, max_lon, tiles):
-
         for tile in tiles:
             tile.latitudes = ma.masked_outside(tile.latitudes, min_lat, max_lat)
             tile.longitudes = ma.masked_outside(tile.longitudes, min_lon, max_lon)
 
             # Or together the masks of the individual arrays to create the new mask
-            data_mask = ma.getmaskarray(tile.times)[:, np.newaxis, np.newaxis] \
-                        | ma.getmaskarray(tile.latitudes)[np.newaxis, :, np.newaxis] \
-                        | ma.getmaskarray(tile.longitudes)[np.newaxis, np.newaxis, :]
-
+            data_mask = self.__get_data_mask(tile)
             tile.data = ma.masked_where(data_mask, tile.data)
-
         tiles[:] = [tile for tile in tiles if not tile.data.mask.all()]
-
         return tiles
+
+    def __get_data_mask(self, tile):
+        # original
+        # data_mask = ma.getmaskarray(tile.times)[:, np.newaxis, np.newaxis] \
+        #             | ma.getmaskarray(tile.latitudes)[np.newaxis, :, np.newaxis] \
+        #             | ma.getmaskarray(tile.longitudes)[np.newaxis, np.newaxis, :]
+        times_array = tile.times
+        if len(times_array) != tile.data.shape[0]:
+            div, mod = divmod(tile.data.shape[0], len(times_array))
+            if mod > 0:
+                div += 1
+            times_array = [times_array for _ in range(div)]
+            times_array = [element for sublist in times_array for element in sublist]
+            times_array = times_array[0:tile.data.shape[0]]
+            logger.info(f'tile.times: {tile.times}, times_array: {times_array}')
+            # times_array = [tile.times[0] for _ in range(tile.data.shape[0])]
+        return ma.getmaskarray(times_array)[:, np.newaxis, np.newaxis] \
+                    | ma.getmaskarray(tile.latitudes)[np.newaxis, :, np.newaxis] \
+                    | ma.getmaskarray(tile.longitudes)[np.newaxis, np.newaxis, :]
 
     def mask_tiles_to_bbox_and_time(self, min_lat, max_lat, min_lon, max_lon, start_time, end_time, tiles):
         for tile in tiles:
@@ -369,14 +382,10 @@ class NexusTileService(object):
             tile.longitudes = ma.masked_outside(tile.longitudes, min_lon, max_lon)
 
             # Or together the masks of the individual arrays to create the new mask
-            data_mask = ma.getmaskarray(tile.times)[:, np.newaxis, np.newaxis] \
-                        | ma.getmaskarray(tile.latitudes)[np.newaxis, :, np.newaxis] \
-                        | ma.getmaskarray(tile.longitudes)[np.newaxis, np.newaxis, :]
-
+            data_mask = self.__get_data_mask(tile)
             tile.data = ma.masked_where(data_mask, tile.data)
 
         tiles[:] = [tile for tile in tiles if not tile.data.mask.all()]
-
         return tiles
 
     def mask_tiles_to_polygon(self, bounding_polygon, tiles):
@@ -403,14 +412,10 @@ class NexusTileService(object):
                 tile.times = ma.masked_outside(tile.times, start_time, end_time)
 
                 # Or together the masks of the individual arrays to create the new mask
-                data_mask = ma.getmaskarray(tile.times)[:, np.newaxis, np.newaxis] \
-                            | ma.getmaskarray(tile.latitudes)[np.newaxis, :, np.newaxis] \
-                            | ma.getmaskarray(tile.longitudes)[np.newaxis, np.newaxis, :]
-
+                data_mask = self.__get_data_mask(tile)
                 tile.data = ma.masked_where(data_mask, tile.data)
 
             tiles[:] = [tile for tile in tiles if not tile.data.mask.all()]
-
         return tiles
 
     def get_tile_count(self, ds, bounding_polygon=None, start_time=0, end_time=-1, metadata=None, **kwargs):
